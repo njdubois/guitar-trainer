@@ -1,184 +1,132 @@
-# Set up on Ubuntu 24.04
+# Deploy on Ubuntu with Apache
 
-This guide uses a Node process, systemd, and Nginx. You need an SSH account
-with sudo access and a domain/subdomain pointing to your server.
+Use `deploy.sh` from a complete copy of this repository on Ubuntu 22.04 or
+newer. It installs the app directly using Node, Apache, systemd, and Certbot.
 
-Replace `SERVER_USER`, `SERVER_IP`, and `annotations.example.com` below with
-your actual SSH username, public server IP, and domain.
+## Before running
 
-## 1. Point your domain at the server
+- Point a dedicated hostname, such as `annotations.yourdomain.com`, at this
+  server. Any A and AAAA records must point to this server.
+- Allow inbound TCP ports 80 and 443 in your hosting provider's firewall.
+- Use an account with sudo access. The script needs systemd.
 
-Create an A record for your chosen hostname, such as `annotations`, pointing
-to the server's public IPv4 address. In your hosting provider's firewall, allow
-inbound TCP ports 80 and 443. The app itself will listen on localhost port 3001.
+The script enables the `Apache Full` UFW rule if UFW is already active. It does
+not enable UFW or change SSH rules. It creates one dedicated Apache virtual
+host. If the chosen hostname is already covered by another enabled virtual
+host, including a wildcard alias, it stops and explains the conflict.
 
-Use a dedicated hostname, such as `annotations.yourdomain.com`; this version
-serves from the hostname root.
+## Run the deployment
 
-## 2. Upload the project from your Mac
-
-From a Mac terminal, package the source:
-
-```bash
-cd /Users/nickdubois/www/PersonalProjects/new_guitar_ar/annotation-tool
-tar --exclude=.git --exclude=node_modules --exclude=dist --exclude=data --exclude=.env --exclude=test-results --exclude=playwright-report -czf /tmp/guitar-annotation-tool.tar.gz .
-scp /tmp/guitar-annotation-tool.tar.gz SERVER_USER@SERVER_IP:~/
-ssh SERVER_USER@SERVER_IP
-```
-
-Mac-installed `node_modules` must stay out of the upload; npm installs the
-correct Linux packages on the server. Existing annotation data and passwords
-are also excluded from this source archive.
-
-Run the remaining commands on the Linux server.
-
-## 3. Install the server software
+In your server copy of the repository:
 
 ```bash
-sudo apt update
-sudo apt install -y curl ca-certificates nginx certbot python3-certbot-nginx
+sudo bash deploy.sh
 ```
 
-Check Node if it is already installed:
+It asks for the hostname and the email for certificate notices. You can also
+provide these up front:
 
 ```bash
-node --version
+sudo bash deploy.sh --domain annotations.yourdomain.com --email you@yourdomain.com
 ```
 
-The app requires Node 22.12 or newer. If it is missing or older, install
-Node 24 using the NodeSource package repository:
+Certbot may ask you to accept Let's Encrypt's terms on the first certificate
+request. At completion, the script prints the HTTPS URL and, on a new install,
+the generated login password. The initial username is `annotator`.
+
+## What the script does
+
+1. Installs Apache, its proxy/SSL modules, Certbot's Apache integration, and
+   build tools. Installs system Node 24 if `/usr/bin/node` is missing or older
+   than 22.12.
+2. Creates the dedicated `guitar-ar` system account.
+3. Preserves an existing deployment's `.env`, or generates a new password.
+4. Keeps uploads in persistent storage. If a previous install used `./data`,
+   it copies that data to the persistent location without deleting the original.
+   Conflicting populated stores are not merged automatically.
+5. Installs dependencies and builds React in a new release folder before
+   switching the service to it.
+6. Configures systemd, starts the app on localhost port 3001, and checks the
+   password challenge. A failed service health check restores the prior release
+   and service file.
+7. Enables a dedicated Apache proxy, obtains or reuses an HTTPS certificate,
+   enables its renewal timer, and checks the HTTPS password challenge.
+
+Other virtual host files are not edited. Repeated deployments preserve this
+app's existing Apache redirects and certificate configuration. Old release
+folders are retained; uploaded data is stored separately.
+
+## Deploy later changes
+
+From your server's Git checkout:
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_24.x -o /tmp/nodesource_setup.sh
-sudo bash /tmp/nodesource_setup.sh
-sudo apt install -y nodejs
-node --version
+git pull --ff-only
+sudo bash deploy.sh
 ```
 
-These service instructions expect the system Node executable at `/usr/bin/node`.
-Check `command -v node`; if your existing Node is installed elsewhere, update
-`ExecStart` in the service file to its absolute path.
+The hostname, certificate email, credentials, and storage location are reused.
+You can also rerun the script after an interrupted or failed deployment. Check
+the reported error first, particularly DNS or firewall issues during HTTPS
+setup.
 
-## 4. Install and build the application
+The installer also copies itself into each deployed release, so if you uploaded
+a source archive rather than using Git, you can run the script from your newer
+uploaded source directory in the same way.
 
-Create a dedicated application account, application folder, and data folder:
+## Files on the server
+
+| Location | Purpose |
+| --- | --- |
+| `/opt/guitar-annotation-tool/releases/` | Built releases and their dependencies |
+| `/opt/guitar-annotation-tool/current` | Symlink to the active release |
+| `/etc/guitar-annotations/app.env` | Preserved or generated app credentials |
+| `/etc/guitar-annotations/domain` | Saved hostname |
+| `/etc/guitar-annotations/email` | Saved certificate email |
+| `/etc/guitar-annotations/data-dir` | Persistent upload directory |
+| `/var/lib/guitar-annotations/` | Default upload and annotation storage |
+| `/etc/apache2/sites-available/guitar-annotations.conf` | App's Apache virtual host |
+| `/etc/systemd/system/guitar-annotations.service` | App's systemd service |
+
+An explicitly configured existing `DATA_DIR` is reused. The service binds to
+localhost port 3001 regardless of old HOST/PORT settings in `.env`.
+
+## Change your password
 
 ```bash
-sudo useradd --system --user-group --home-dir /opt/guitar-annotation-tool --shell /usr/sbin/nologin guitar-ar
-sudo mkdir -p /opt/guitar-annotation-tool /var/lib/guitar-annotations
-sudo tar -xzf ~/guitar-annotation-tool.tar.gz -C /opt/guitar-annotation-tool
-sudo chown -R guitar-ar:guitar-ar /opt/guitar-annotation-tool /var/lib/guitar-annotations
-cd /opt/guitar-annotation-tool
-sudo -H -u guitar-ar npm ci --include=dev
-sudo -H -u guitar-ar npm run build
-```
-
-## 5. Set the password
-
-```bash
-sudo -u guitar-ar cp .env.example .env
-sudo -u guitar-ar nano .env
-```
-
-Use these values, replacing the sample password:
-
-```dotenv
-PORT=3001
-HOST=127.0.0.1
-BASIC_AUTH_USER=annotator
-BASIC_AUTH_PASSWORD="choose-your-password"
-DATA_DIR=/var/lib/guitar-annotations
-```
-
-In nano, press Ctrl+O, Enter to save, then Ctrl+X to exit.
-
-```bash
-sudo chmod 600 .env
-```
-
-## 6. Start the app and keep it running
-
-```bash
-sudo cp deploy/guitar-annotations.service /etc/systemd/system/guitar-annotations.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now guitar-annotations
-sudo systemctl status guitar-annotations --no-pager
-```
-
-Look for `active (running)`. Check the local app:
-
-```bash
-curl -I http://127.0.0.1:3001/
-```
-
-`401 Unauthorized` is expected: it confirms the app is responding and enforcing
-its password. If startup fails, inspect logs with:
-
-```bash
-sudo journalctl -u guitar-annotations -n 50 --no-pager
-```
-
-## 7. Connect your domain
-
-```bash
-sudo cp deploy/nginx.conf /etc/nginx/sites-available/guitar-annotations
-sudo nano /etc/nginx/sites-available/guitar-annotations
-```
-
-Replace `annotations.example.com` in `server_name` with your actual hostname.
-Save and exit. Then:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/guitar-annotations /etc/nginx/sites-enabled/guitar-annotations
-sudo nginx -t
-sudo systemctl enable --now nginx
-sudo systemctl reload nginx
-```
-
-Only reload after `nginx -t` succeeds. If UFW is already active, allow the web
-ports without changing your SSH rules:
-
-```bash
-sudo ufw allow 'Nginx Full'
-```
-
-## 8. Enable HTTPS and sign in
-
-The hostname must resolve to this server and port 80 must be reachable for
-certificate validation. Replace the hostname in this command:
-
-```bash
-sudo certbot --nginx --redirect -d annotations.example.com
-sudo certbot renew --dry-run
-```
-
-Follow Certbot's email and terms prompts. Open your HTTPS address, for example
-`https://annotations.yourdomain.com`, and sign in using `annotator` and the
-password you set in `.env`.
-
-## Ongoing use
-
-Restart after changing `.env`:
-
-```bash
+sudo nano /etc/guitar-annotations/app.env
 sudo systemctl restart guitar-annotations
 ```
 
-View live logs:
+Update `BASIC_AUTH_PASSWORD`. The script does not reset it on later deployments.
+If a first deployment stopped before displaying its generated password, read
+this file to retrieve it.
+
+## Logs and backups
 
 ```bash
-sudo journalctl -u guitar-annotations -f
+sudo systemctl status guitar-annotations --no-pager
+sudo journalctl -u guitar-annotations -n 50 --no-pager
 ```
 
-Images and annotations persist in `/var/lib/guitar-annotations`. Back up that
-entire directory. The source code lives separately in `/opt/guitar-annotation-tool`.
+Back up the entire persistent data folder and `/etc/guitar-annotations/`.
 
-For later source updates, preserve `.env` and the data folder, replace the
-application source, repeat `npm ci --include=dev` and `npm run build` as the
-`guitar-ar` user, then restart the service. Run one server process for this
-file-backed version.
+## Manual Apache setup
 
-References: [NodeSource installation](https://github.com/nodesource/distributions),
-[Nginx proxy settings](https://nginx.org/en/docs/http/ngx_http_proxy_module.html),
-[Ubuntu's Certbot Nginx package](https://packages.ubuntu.com/noble/python3-certbot-nginx),
-[Certbot Nginx instructions](https://certbot.eff.org/instructions?ws=nginx&os=snap).
+`deploy/apache.conf` is the Apache virtual host template if you prefer manual
+configuration. The older `deploy/guitar-annotations.service` example is for a
+manual installation directly under `/opt/guitar-annotation-tool`; the script
+generates its own service for the release layout described above.
+
+## Verification
+
+`npm test` includes deployment checks for credential preservation, data
+migration, malformed inputs, Apache configuration preservation, failed builds,
+service rollback, and certificate command construction. System commands are
+simulated by these tests; actual package installation, Apache/systemd operation,
+and certificate issuance must run on the Ubuntu server. `shellcheck deploy.sh`
+and `bash -n deploy.sh` check the script itself.
+
+References: [Apache reverse proxies](https://httpd.apache.org/docs/2.4/mod/mod_proxy.html),
+[Certbot Apache instructions](https://certbot.eff.org/instructions?ws=apache&os=ubuntufocal),
+[NodeSource installer](https://github.com/nodesource/distributions/blob/master/scripts/deb/setup_24.x).

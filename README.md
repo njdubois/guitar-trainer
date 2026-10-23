@@ -112,8 +112,19 @@ held-out validation folder if you organize your split yourself.
 
 ## Host on your server
 
-For a complete Ubuntu walkthrough, use [LINUX-SETUP.md](LINUX-SETUP.md).
-Ready-to-copy systemd and Nginx files are in `deploy/`.
+For Ubuntu with Apache, run the deployment script from your server checkout:
+
+```bash
+sudo bash deploy.sh
+```
+
+It asks for a hostname and certificate email, builds the app, configures Apache
+and systemd, and enables HTTPS. A new install generates a login password;
+updates preserve your credentials and uploads. The hostname must already point
+to the server, with incoming ports 80 and 443 allowed.
+
+See [LINUX-SETUP.md](LINUX-SETUP.md) for options, file locations, and redeployment.
+The following instructions are an alternative manual setup.
 
 Deploy this entire `annotation-tool` directory to a server with Node.js, then:
 
@@ -147,17 +158,23 @@ original `Host` header and allow uploads of at least 20 MB. If Node is in a
 different network environment from the proxy, set `HOST=0.0.0.0` as appropriate.
 Use HTTPS for the public website so Basic credentials are encrypted in transit.
 
-An Nginx location for a dedicated domain or subdomain can look like:
+Enable Apache's `proxy`, `proxy_http`, `headers`, `ssl`, and `rewrite` modules.
+A virtual host for a dedicated domain or subdomain can look like:
 
-```nginx
-location / {
-    client_max_body_size 21m;
-    proxy_pass http://127.0.0.1:3001;
-    proxy_set_header Host $http_host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-}
+```apache
+<VirtualHost *:80>
+    ServerName annotations.yourdomain.com
+    ProxyRequests Off
+    ProxyPreserveHost On
+    LimitRequestBody 22020096
+    ProxyPass "/.well-known/acme-challenge/" "!"
+    ProxyPass "/" "http://127.0.0.1:3001/"
+    ProxyPassReverse "/" "http://127.0.0.1:3001/"
+</VirtualHost>
 ```
+
+Use Certbot's Apache integration to configure the HTTPS certificate and redirect.
+The complete template is in `deploy/apache.conf`.
 
 The app serves from the domain root. Serve the production build through Node;
 the React build alone does not provide the upload and annotation API. Hosted
@@ -195,6 +212,8 @@ npm run test:browser
 The eight API integration tests cover authentication, decoded uploads, camera
 orientation, duplicate detection, explicit negatives, invalid polygons, save
 conflicts, persistence, export contents, cross-site requests, and deletion.
+Deployment tests also cover configuration preservation, storage migration,
+Apache conflicts, build failures, service rollback, and HTTPS setup commands.
 
 Browser verification covers upload, four labels, thin polygons, point dragging,
 undo/redo, review, reload, zoom, export, keyboard guide dismissal, and mobile
