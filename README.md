@@ -1,211 +1,209 @@
-# Guitar AR: first recognition model
+# Fretboard Studio
 
-Use the [React annotation tool](annotation-tool/README.md) to upload images,
-draw the four label types, save your work, and export a dataset for this script.
-It includes a password-protected Node backend and can run on your own server.
+A React frontend and Node/Express backend for annotating guitar AR training
+images. Run it directly on your computer or a server with Node.js. No database
+or container service is required.
 
-`train_guitar.py` reads annotated photos from a folder and fine-tunes a small
-YOLO11 instance segmentation model. It learns four classes: `guitar`, `fretboard`,
-`fret`, and `string`. Predictions contain a class, confidence, bounding box, and
-outline for each instance.
+## Run locally
 
-This is the first recognition stage. Precise tab dots will also require string
-ordering, fret numbering anchored to the nut or another known fret, fretboard
-geometry, camera/display calibration, and tracking across frames. A generic
-`fret` prediction does not identify its fret number. This script does not yet
-render AR dots or establish real-time performance on glasses.
-
-## Install
-
-Use Python 3.11 or newer; Python 3.12 is a good starting environment.
+Requires Node.js 22.12 or newer.
 
 ```bash
-cd /Users/nickdubois/www/PersonalProjects/new_guitar_ar
-uv venv --python 3.12 .venv
-source .venv/bin/activate
-uv pip install -r requirements.txt
+cd /Users/nickdubois/www/PersonalProjects/new_guitar_ar/annotation-tool
+npm install
+npm run dev
 ```
 
-Without uv, create the environment using `python3 -m venv .venv` with Python
-3.11 or newer, activate it, and install with
-`python -m pip install -r requirements.txt`.
-The first training run downloads the pretrained `yolo11n-seg.pt` weights.
-For offline training, download the weights beforehand and pass `--model /path/to/yolo11n-seg.pt`.
+Open **http://localhost:3001**. Your browser asks for HTTP Basic credentials:
 
-## Supply images and annotations
+- Username: **annotator**
+- Password: **guitar-ar**
 
-**Photos alone are insufficient for this supervised training script.** A person
-must first mark which pixels belong to each object. Use an annotation tool that
-exports **YOLO instance segmentation polygons**, with the following exact class
-order (also provided in `classes.txt`):
+Authentication is checked by the backend for the frontend, API, images, and
+exports. The frontend and backend share one port. Vite provides React hot
+reloading during development.
 
-| ID | Class | What to outline |
+## Annotate images
+
+1. Enter a recording session name, such as `session-01`. Keep photos from the
+   same recording session together so training can hold out entire sessions.
+2. Upload one or more JPG, PNG, or WebP images, or drop them into the editor.
+   Uploads are limited to 20 MB and 50 megapixels per image. Duplicate images
+   are rejected.
+3. Choose a label, click points around its outline, then press **Enter** or
+   **Finish polygon**. Zoom in to trace both sides of thin wires and strings.
+4. Repeat for all visible target parts. Use separate polygons for visible
+   sections separated by fingers or other occlusions. Overlapping class
+   outlines are expected.
+5. Choose **Select and edit points** or click a region in the right sidebar.
+   Drag its points to refine it; the sidebar also supports relabeling and
+   deleting the selected region.
+6. Click **Save draft** to save work in progress. Click **Review & save** after
+   checking all visible parts. An edit clears review status until reviewed again.
+7. Click **Export dataset** to download reviewed images and matching labels.
+
+| Training ID | Label | Outline |
 | --- | --- | --- |
-| 0 | `guitar` | The visible guitar silhouette, including neck and body when present. |
-| 1 | `fretboard` | The visible fingerboard surface. |
-| 2 | `fret` | Each visible metal fret wire as its own thin polygon. |
-| 3 | `string` | Each visible string over the fretboard as its own narrow polygon. |
+| 0 | `guitar` | The visible instrument silhouette, including its neck. |
+| 1 | `fretboard` | The fingerboard surface. |
+| 2 | `fret` | Each visible metal fret wire separately. |
+| 3 | `string` | Each visible string over the fretboard separately. |
 
-Overlapping class outlines are expected: a string lies inside a fretboard, and
-the fretboard lies inside a guitar. The trainer keeps these masks independent.
-Include partially cropped guitars and close views where only the neck is visible.
-Annotate all four classes wherever visible. Do not mark fingers or guess hidden
-wire paths. Use the same visible-region convention throughout the dataset. For
-disconnected visible portions, use separate polygons consistently; this first
-model does not preserve a string's identity across finger occlusions.
+The number keys **1–4** select these labels; exported IDs are **0–3**. Fret
+numbers and string identities are not assigned by this first model.
 
-Strings and frets need polygons with nonzero width; two-point lines and ordinary
-bounding boxes will be rejected. Follow the actual visible thickness as closely
-as possible. Very thin strings may disappear when an image is resized; collect
-close, sharp neck views, inspect the training previews, and consider a later
-fretboard crop plus endpoint/keypoint model for more precise localization.
+For a reviewed photo with no visible target parts, check **No guitar parts in
+this image**, then review and save. It exports with an explicit empty label
+file. Unfinished images are excluded from exports.
 
-Put each recording session in its own top-level subfolder:
+### Controls
 
-```text
-dataset/
-  images/
-    session_01/
-      frame_001.jpg
-      frame_002.jpg
-    session_02/
-      frame_001.jpg
-  labels/
-    session_01/
-      frame_001.txt
-      frame_002.txt
-    session_02/
-      frame_001.txt
-```
+| Action | Control |
+| --- | --- |
+| Select label | `1`, `2`, `3`, `4` |
+| Draw polygon | `P` |
+| Select / edit points | `V` |
+| Pan | Hold `Space`, middle-drag, or choose `H` |
+| Zoom | Mouse wheel or toolbar buttons |
+| Fit image | `F` |
+| Finish polygon | `Enter` |
+| Cancel polygon / selection | `Escape` |
+| Remove last unfinished point | `Backspace` |
+| Delete selected polygon | `Delete` / `Backspace` |
+| Undo / redo | `Ctrl/⌘ Z` / `Ctrl/⌘ Shift Z` |
+| Save | `Ctrl/⌘ S` |
+| Previous / next image | Left / right arrow |
 
-Every image needs a matching `.txt` label, with one object per line:
+Changes are saved explicitly. Navigating away from unsaved work asks before
+discarding it. Revision checks prevent an older tab overwriting a newer save.
+
+## Use the export with the Python trainer
+
+The ZIP preserves session folders:
 
 ```text
-class_id x1 y1 x2 y2 x3 y3 ...
+images/session-01/<image-id>.png
+labels/session-01/<image-id>.txt
+classes.txt
+annotations.json
+README.txt
 ```
 
-Coordinates are normalized: `x / image_width`, `y / image_height`, in `[0, 1]`.
-For example, this rectangle is a *single fretboard annotation*:
+Each label file uses the exact YOLO segmentation format and class order expected
+by `../train_guitar.py`. Images are stored at full resolution as lossless PNGs,
+with camera orientation applied before annotation. The image used for labeling
+is the same image included in the export. `annotations.json` also retains the
+editor's region data and original filenames; JSON re-import is not implemented.
 
-```text
-1 0.20 0.30 0.85 0.35 0.82 0.55 0.18 0.50
-```
-
-The remaining objects need their own rows. Class IDs must match the table.
-An empty label file explicitly means a reviewed negative image with none of
-these classes. A missing label is an error, so unlabeled guitars cannot silently
-become negative training examples. If labels sit beside the photos, omit `--labels`.
-
-Start with a few hundred carefully annotated, varied photos as an initial
-experiment; the amount needed for accuracy must be measured. Capture the view
-looking down at a guitar being played: different hands, finger positions, neck
-angles, partial crops, motion blur, lighting, backgrounds, guitar types, and
-left- and right-handed players. Include some scenes without guitars. Keep an
-entire session or guitar out of training to measure generalization. More frames
-from one recording are not equivalent to more independent examples.
-
-## Check the dataset, then train
-
-Prepare a copy and report without downloading or loading a model:
+After extracting the ZIP, run from `new_guitar_ar`:
 
 ```bash
 python train_guitar.py \
-  --images dataset/images \
-  --labels dataset/labels \
-  --output runs/data_check \
+  --images /path/to/extracted/images \
+  --labels /path/to/extracted/labels \
+  --output runs/annotated-check \
   --prepare-only
 ```
 
-Train with a separate new output folder:
+Then train with a new output folder and omit `--prepare-only`. The trainer
+requires at least two independent sessions for automatic folder splitting and
+examples of all four classes in both training and validation. Use an explicitly
+held-out validation folder if you organize your split yourself.
+
+## Host on your server
+
+For a complete Ubuntu walkthrough, use [LINUX-SETUP.md](LINUX-SETUP.md).
+Ready-to-copy systemd and Nginx files are in `deploy/`.
+
+Deploy this entire `annotation-tool` directory to a server with Node.js, then:
 
 ```bash
-python train_guitar.py \
-  --images dataset/images \
-  --labels dataset/labels \
-  --output runs/first \
-  --epochs 100 \
-  --imgsz 960 \
-  --batch 4 \
-  --device auto
+npm ci
+npm run build
+cp .env.example .env
 ```
 
-`auto` chooses CUDA, then an Apple Metal GPU (`mps`), then CPU. You can explicitly
-pass `--device cpu`, `--device mps`, or `--device 0`. CPU training can be slow.
-If memory runs out, try `--batch 1` first. `--mask-ratio 2` uses less mask memory;
-inspect whether the thinner labels survive. Higher input resolution costs more
-memory and inference time. `--imgsz` must be divisible by 32.
+Edit `.env` with the username, password, port, and persistent storage path you
+want. For example:
 
-By default, 20% of top-level session folders are held out. With just two folders,
-one goes into validation. With flat folders, independent photos are split
-instead. Nearby video frames must stay in one session folder. The seed makes
-the split repeatable for an unchanged dataset; exact duplicate files are rejected.
-Both splits must contain all four classes. Keep a third, independent test set
-for final evaluation; validation is used during training to select the weights.
+```dotenv
+PORT=3001
+HOST=127.0.0.1
+BASIC_AUTH_USER=annotator
+BASIC_AUTH_PASSWORD=your-password
+DATA_DIR=/srv/guitar-annotations
+```
 
-To designate your own validation set, add:
+Create the data directory and make it writable by the account running Node.
+Then start the production app:
+
+```bash
+npm start
+```
+
+Use your hosting provider's process manager, systemd, or PM2 to keep that
+command running. Set up an HTTPS domain that proxies to port 3001. Preserve the
+original `Host` header and allow uploads of at least 20 MB. If Node is in a
+different network environment from the proxy, set `HOST=0.0.0.0` as appropriate.
+Use HTTPS for the public website so Basic credentials are encrypted in transit.
+
+An Nginx location for a dedicated domain or subdomain can look like:
+
+```nginx
+location / {
+    client_max_body_size 21m;
+    proxy_pass http://127.0.0.1:3001;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+The app serves from the domain root. Serve the production build through Node;
+the React build alone does not provide the upload and annotation API. Hosted
+platforms can use `npm ci && npm run build` as their build command and `npm start`
+as their start command, with a persistent disk mounted at `DATA_DIR`.
+
+Run **one Node process** for this file-backed version. Multiple browser tabs
+are supported, with conflicts reported explicitly; running multiple server
+replicas against the same files is not supported.
+
+## Storage and backups
+
+By default the app writes to `annotation-tool/data/`. `DATA_DIR` can move this
+outside the deployed source directory so redeployments preserve your work.
 
 ```text
---val-images held_out/images --val-labels held_out/labels
+data/
+  images/       # Full-resolution, oriented PNG images
+  thumbnails/   # Library previews
+  records/      # Annotation JSON, sessions, review status, revisions
 ```
 
-Every run requires a new `--output` folder and copies the dataset into that
-folder. Originals are left intact. `--prepare-only` outputs are review copies;
-the training command above prepares its own copy. To fine-tune already learned
-weights on more images, pass `--model runs/first/training/weights/best.pt` and a new
-output folder. This starts a new optimization run, rather than resuming an
-interrupted optimizer state.
+Back up this complete folder. Exporting downloads a dataset copy; it does not
+remove stored images. Deleting an image from the UI removes its server copy
+and its annotations after confirmation.
 
-Outputs include:
-
-```text
-runs/first/
-  dataset/data.yaml              # Prepared YOLO dataset
-  dataset_report.json            # Counts, input paths, hashes, and split membership
-  training/weights/best.pt        # Best checkpoint selected using validation
-  training/weights/last.pt        # Last checkpoint
-  training/results.csv           # Per-epoch losses and validation metrics
-  training/                      # Training/validation preview images and plots
-```
-
-Inspect the preview masks before trusting scores. Confirm that individual
-strings and fret wires are learned, and evaluate held-out playing videos later.
-The pretrained checkpoint supplies general visual features; guitar-specific
-recognition depends on your annotations and training results.
-
-## Try a trained model
-
-Save predictions on unseen photos:
+## Verification
 
 ```bash
-yolo segment predict \
-  model=runs/first/training/weights/best.pt \
-  source=/path/to/unseen/photos \
-  imgsz=960 conf=0.25 retina_masks=True save=True
+npm test
+npm run build
+npm run test:browser
 ```
 
-For an initial webcam preview on the development computer:
+The eight API integration tests cover authentication, decoded uploads, camera
+orientation, duplicate detection, explicit negatives, invalid polygons, save
+conflicts, persistence, export contents, cross-site requests, and deletion.
 
-```bash
-yolo segment predict \
-  model=runs/first/training/weights/best.pt \
-  source=0 imgsz=960 conf=0.25 show=True
-```
+Browser verification covers upload, four labels, thin polygons, point dragging,
+undo/redo, review, reload, zoom, export, keyboard guide dismissal, and mobile
+layout. It uses installed Chrome on macOS when available. Otherwise install
+the Playwright browser with `npx playwright install chromium`, or set
+`PLAYWRIGHT_CHANNEL` to an installed browser channel. Screenshots go into
+`test-results/browser/`.
 
-This preview is useful for assessing the model; latency and stability still need
-measurement on the chosen glasses hardware. Ultralytics also provides exports
-such as ONNX, Core ML, and TensorRT when a deployment target is chosen.
-
-## Validation and references
-
-Run the dataset preparation tests after installing the requirements:
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-Reference documentation:
-[segmentation models](https://docs.ultralytics.com/tasks/segment/),
-[polygon dataset format](https://docs.ultralytics.com/datasets/segment/),
-[training settings](https://docs.ultralytics.com/modes/train/),
-[deployment/export](https://docs.ultralytics.com/modes/export/), and
-[Ultralytics dependency licensing](https://www.ultralytics.com/license).
+To additionally check exported files with the Python trainer, set
+`TRAINING_PYTHON` to the Python executable with the trainer's dependencies
+installed when running `npm run test:browser`. Test uploads are synthetic and
+isolated from the app's real data.

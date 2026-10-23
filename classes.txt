@@ -1,4 +1,0 @@
-guitar
-fretboard
-fret
-string

@@ -1,11 +1,7 @@
-.venv/
-__pycache__/
+node_modules/
+dist/
+data/
+.env
+playwright-report/
+test-results/
 .DS_Store
-*.cache
-*.pt
-*.onnx
-runs/
-dataset/images/**
-dataset/labels/**
-!dataset/images/.gitkeep
-!dataset/labels/.gitkeep

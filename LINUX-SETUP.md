@@ -21,7 +21,7 @@ From a Mac terminal, package the source:
 
 ```bash
 cd /Users/nickdubois/www/PersonalProjects/new_guitar_ar/annotation-tool
-tar --exclude=node_modules --exclude=dist --exclude=data --exclude=.env --exclude=test-results --exclude=playwright-report -czf /tmp/guitar-annotation-tool.tar.gz .
+tar --exclude=.git --exclude=node_modules --exclude=dist --exclude=data --exclude=.env --exclude=test-results --exclude=playwright-report -czf /tmp/guitar-annotation-tool.tar.gz .
 scp /tmp/guitar-annotation-tool.tar.gz SERVER_USER@SERVER_IP:~/
 ssh SERVER_USER@SERVER_IP
 ```
