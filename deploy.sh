@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy Fretboard Studio on Ubuntu 22.04+ with Apache and systemd.
+# Deploy Fretboard Studio on Ubuntu 22.04, 24.04, or 26.04 LTS with Apache.
 # Usage: sudo bash deploy.sh --domain annotations.example.com --email you@example.com
 
 DEPLOY_APP_ROOT=/opt/guitar-annotation-tool
@@ -24,7 +24,7 @@ deploy_die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 
 deploy_usage() {
   cat <<'USAGE'
-Deploy Fretboard Studio on Ubuntu 22.04 or newer, using Apache.
+Deploy Fretboard Studio on Ubuntu 22.04, 24.04, or 26.04 LTS, using Apache.
 
   sudo bash deploy.sh
   sudo bash deploy.sh --domain annotations.example.com --email you@example.com
@@ -87,14 +87,25 @@ deploy_resolve_inputs() {
   fi
 }
 
+deploy_require_supported_ubuntu() {
+  local deploy_os=${1:-unknown} deploy_version=${2:-unknown}
+  case "$deploy_os:$deploy_version" in
+    ubuntu:22.04|ubuntu:24.04|ubuntu:26.04) return 0 ;;
+    ubuntu:22.10)
+      deploy_die 'Ubuntu 22.10 (kinetic) reached end of life on July 20, 2023; its normal package mirrors no longer work. Upgrade or migrate to a supported Ubuntu LTS before deploying. This installer does not upgrade the OS.' ;;
+    ubuntu:*)
+      deploy_die "Ubuntu $deploy_version is not supported by this installer. Use Ubuntu 22.04, 24.04, or 26.04 LTS. No packages or services were changed." ;;
+    *) deploy_die 'This installer requires Ubuntu 22.04, 24.04, or 26.04 LTS.' ;;
+  esac
+}
+
 deploy_check_platform() {
   [[ $(uname -s) == Linux ]] || deploy_die 'Run this script on the Ubuntu server, not on your Mac.'
   [[ $EUID -eq 0 ]] || deploy_die 'Run with sudo: sudo bash deploy.sh'
   # /etc/os-release is supplied by the operating system, not the application.
   # shellcheck disable=SC1091
   . /etc/os-release
-  local deploy_version=${VERSION_ID:-0}
-  [[ ${ID:-} == ubuntu && ${deploy_version%%.*} -ge 22 ]] || deploy_die 'This installer supports Ubuntu 22.04 and newer.'
+  deploy_require_supported_ubuntu "${ID:-unknown}" "${VERSION_ID:-unknown}"
   [[ -d /run/systemd/system ]] || deploy_die 'This installer needs a server running systemd.'
   command -v flock >/dev/null || deploy_die 'Install util-linux so the deployment can acquire a lock.'
 }

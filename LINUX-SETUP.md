@@ -1,7 +1,7 @@
 # Deploy on Ubuntu with Apache
 
-Use `deploy.sh` from a complete copy of this repository on Ubuntu 22.04 or
-newer. It installs the app directly using Node, Apache, systemd, and Certbot.
+Use `deploy.sh` from a complete copy of this repository on Ubuntu **22.04,
+24.04, or 26.04 LTS**. It installs the app using Node, Apache, systemd, and Certbot.
 
 ## Before running
 
@@ -9,6 +9,14 @@ newer. It installs the app directly using Node, Apache, systemd, and Certbot.
   server. Any A and AAAA records must point to this server.
 - Allow inbound TCP ports 80 and 443 in your hosting provider's firewall.
 - Use an account with sudo access. The script needs systemd.
+
+End-of-life interim releases such as Ubuntu 22.10 (`kinetic`) are rejected before
+installing packages. This script does not upgrade Ubuntu or rewrite package
+repository codenames. If apt reports `kinetic` mirror 404 errors, check
+`cat /etc/os-release` and plan an OS upgrade/migration, or repair stale repository
+settings if the OS has already been upgraded. See Ubuntu's
+[release list](https://ubuntu.com/project/docs/release-team/list-of-releases/) and
+[end-of-life upgrade guide](https://help.ubuntu.com/community/EOLUpgrades).
 
 The script enables the `Apache Full` UFW rule if UFW is already active. It does
 not enable UFW or change SSH rules. It creates one dedicated Apache virtual

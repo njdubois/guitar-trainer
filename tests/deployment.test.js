@@ -55,6 +55,22 @@ test('deployment help runs without root, packages, or server changes', () => {
   const result = spawnSync('bash', [deployScript, '--help'], { encoding: 'utf8' });
   good(result); assert.match(result.stdout, /Apache/); assert.match(result.stdout, /--domain/);
 });
+test('platform check accepts the supported Ubuntu LTS releases', async (t) => {
+  const { run } = await fixture(t);
+  for (const version of ['22.04', '24.04', '26.04']) good(run(`deploy_require_supported_ubuntu ubuntu ${shellQuote(version)}`));
+});
+test('kinetic and other unsupported releases stop before package installation', async (t) => {
+  const { run, file } = await fixture(t);
+  const marker = file('packages-were-touched');
+  const kinetic = run(`deploy_require_supported_ubuntu ubuntu 22.10\ntouch ${shellQuote(marker)}`);
+  assert.notEqual(kinetic.status, 0);
+  assert.match(kinetic.stderr, /kinetic.*end of life.*July 20, 2023/);
+  assert.equal(await exists(marker), false);
+  for (const version of ['20.04', '23.04', '23.10', '24.10', '25.04', '25.10', '26.10', '28.04', 'unknown']) {
+    assert.notEqual(run(`deploy_require_supported_ubuntu ubuntu ${shellQuote(version)}`).status, 0, version);
+  }
+  assert.notEqual(run('deploy_require_supported_ubuntu debian 12').status, 0);
+});
 test('domain and email validation reject URLs, wildcards, path injection, and malformed labels', async (t) => {
   const { run } = await fixture(t);
   for (const domain of ['annotations.example.com', 'guitar-01.example.co.uk', 'xn--guitar.example.com']) good(run(`deploy_validate_domain ${shellQuote(domain)}`));
