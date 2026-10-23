@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.DS_Store
+*.cache
+*.pt
+*.onnx
+runs/
+dataset/images/**
+dataset/labels/**
+!dataset/images/.gitkeep
+!dataset/labels/.gitkeep

@@ -1,0 +1,17 @@
+[Unit]
+Description=Guitar AR annotation tool
+After=network.target
+
+[Service]
+Type=simple
+User=guitar-ar
+Group=guitar-ar
+WorkingDirectory=/opt/guitar-annotation-tool
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/guitar-annotation-tool/server/index.js
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
